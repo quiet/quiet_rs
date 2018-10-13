@@ -1,2 +1,4 @@
 /target
+fec/target
 **/*.rs.bk
+Cargo.lock

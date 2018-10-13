@@ -1,6 +1,6 @@
-extern crate quiet;
+extern crate fec;
 
-use quiet::fec::convolutional;
+use fec::convolutional;
 
 fn main() {
     let bytes: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];

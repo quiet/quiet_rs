@@ -1,15 +1,9 @@
 [package]
-name = "quiet"
+name = "fec"
 version = "0.1.0"
 authors = ["Brian Armstrong <brian.armstrong.ece+github@gmail.com>"]
 description = "Quiet Modem Project and its dependencies"
 license = "BSD-3-Clause"
 
-
 [dependencies]
 lazy_static = "1.1.0"
-fec = { path = "fec" }
-
-[lib]
-name = "embed"
-crate-type = ["staticlib"]
