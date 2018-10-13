@@ -2,7 +2,7 @@
 name = "fec"
 version = "0.1.0"
 authors = ["Brian Armstrong <brian.armstrong.ece+github@gmail.com>"]
-description = "Quiet Modem Project and its dependencies"
+description = "Library for forward error correction. Currently contains encoder/decoder for convolutional codes"
 license = "BSD-3-Clause"
 
 [dependencies]
