@@ -141,16 +141,6 @@ impl Decoder {
                         history[state] = successor;
                     }
                 }
-                for j in 0..self.highbit {
-                    println!(
-                        "{} {} {}",
-                        j,
-                        self.error_table.errors[j as usize],
-                        self.history_table.get_slice()[j as usize]
-                    );
-                }
-                println!("\n");
-
                 self.history_table
                     .process(&mut self.error_table.errors, decoded);
             }
