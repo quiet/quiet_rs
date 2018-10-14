@@ -2,6 +2,7 @@ pub fn num_states_for_order(order: u32) -> u32 {
     1 << order
 }
 
+#[inline]
 pub fn metric_distance(x: u32, y: u32) -> u32 {
     (x ^ y).count_ones()
 }
