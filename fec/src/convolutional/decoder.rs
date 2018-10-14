@@ -82,10 +82,12 @@ impl Decoder {
                 *distance = util::metric_distance(j as u32, outputs.into()) as u16;
             }
 
-            {
+            unsafe {
                 {
                     self.pair_table.distances(&self.distances);
                     let pair_keys = &self.pair_table.keys;
+                    let mut low_key_iter = pair_keys.iter();
+                    let mut high_key_iter = pair_keys[(self.highbit as usize >> 1)..].iter();
                     let pair_distances = &mut self.pair_table.distances;
 
                     let previous_errors = &self.error_table.previous_errors;
@@ -93,52 +95,59 @@ impl Decoder {
 
                     let history = self.history_table.get_slice();
 
-                    let state_iter = (0..self.highbit as usize).step_by(2);
-                    let prev_state_iter = (0..(self.highbit >> 1) as usize).step_by(1);
+                    let state_iter = (0..self.highbit as usize).step_by(8);
+                    let prev_state_iter = (0..(self.highbit >> 1) as usize).step_by(4);
                     let high_prev_offset = (self.highbit >> 1) as usize;
 
                     for (state, prev_state) in state_iter.zip(prev_state_iter) {
-                        let low_key = pair_keys[prev_state];
-                        let high_key = pair_keys[prev_state + high_prev_offset];
+                        for (state_offset, prev_offset) in (0..8).step_by(2).zip(0..4) {
+                            let low_key = *low_key_iter.next().unwrap();
+                            let high_key = *high_key_iter.next().unwrap();
 
-                        let low_concat_distance = pair_distances[low_key as usize];
-                        let high_concat_distance = pair_distances[high_key as usize];
+                            let low_concat_distance =
+                                *pair_distances.get_unchecked(low_key as usize);
+                            let high_concat_distance =
+                                *pair_distances.get_unchecked(high_key as usize);
 
-                        let low_prev_error = previous_errors[prev_state];
-                        let high_prev_error = previous_errors[prev_state + high_prev_offset];
+                            let low_prev_error =
+                                *previous_errors.get_unchecked(prev_state + prev_offset);
+                            let high_prev_error = *previous_errors
+                                .get_unchecked(prev_state + prev_offset + high_prev_offset);
 
-                        let low_error: u16 = (low_concat_distance & 0xffff) as u16 + low_prev_error;
-                        let high_error: u16 =
-                            (high_concat_distance & 0xffff) as u16 + high_prev_error;
+                            let low_error: u16 =
+                                (low_concat_distance & 0xffff) as u16 + low_prev_error;
+                            let high_error: u16 =
+                                (high_concat_distance & 0xffff) as u16 + high_prev_error;
 
-                        let error: u16;
-                        let successor: u8;
-                        if low_error <= high_error {
-                            error = low_error;
-                            successor = 0;
-                        } else {
-                            error = high_error;
-                            successor = 1;
+                            let error: u16;
+                            let successor: u8;
+                            if low_error <= high_error {
+                                error = low_error;
+                                successor = 0;
+                            } else {
+                                error = high_error;
+                                successor = 1;
+                            }
+                            *errors.get_unchecked_mut(state + state_offset) = error;
+                            *history.get_unchecked_mut(state + state_offset) = successor;
+
+                            let state = state + 1;
+
+                            let low_error = (low_concat_distance >> 16) as u16 + low_prev_error;
+                            let high_error = (high_concat_distance >> 16) as u16 + high_prev_error;
+
+                            let error: u16;
+                            let successor: u8;
+                            if low_error <= high_error {
+                                error = low_error;
+                                successor = 0;
+                            } else {
+                                error = high_error;
+                                successor = 1;
+                            }
+                            *errors.get_unchecked_mut(state + state_offset) = error;
+                            *history.get_unchecked_mut(state + state_offset) = successor;
                         }
-                        errors[state] = error;
-                        history[state] = successor;
-
-                        let state = state + 1;
-
-                        let low_error = (low_concat_distance >> 16) as u16 + low_prev_error;
-                        let high_error = (high_concat_distance >> 16) as u16 + high_prev_error;
-
-                        let error: u16;
-                        let successor: u8;
-                        if low_error <= high_error {
-                            error = low_error;
-                            successor = 0;
-                        } else {
-                            error = high_error;
-                            successor = 1;
-                        }
-                        errors[state] = error;
-                        history[state] = successor;
                     }
                 }
                 self.history_table
@@ -254,11 +263,13 @@ impl ConvolutionalErrorTable {
 #[derive(Debug)]
 struct ConvolutionalHistoryTable {
     min_traceback_length: u32,
+    num_states: u32,
     highbit: u16,
-    history: Vec<Vec<u8>>,
+    history: Vec<u8>,
     decode_buf: Vec<u8>,
     history_index: usize,
     history_len: usize,
+    history_cap: usize,
     renormalize_interval: u32,
     renormalize_counter: u32,
 }
@@ -275,18 +286,21 @@ impl ConvolutionalHistoryTable {
 
         ConvolutionalHistoryTable {
             min_traceback_length,
+            num_states,
             highbit,
-            history: vec![vec![0; num_states as usize]; cap as usize],
+            history: vec![0; num_states as usize * cap as usize],
             decode_buf: vec![0; cap as usize],
             history_index: 0,
             history_len: 0,
+            history_cap: cap as usize,
             renormalize_interval,
             renormalize_counter: 0,
         }
     }
 
     pub fn get_slice(&mut self) -> &mut [u8] {
-        &mut self.history[self.history_index]
+        &mut self.history[(self.history_index * self.num_states as usize)
+                              ..((self.history_index + 1) * self.num_states as usize)]
     }
 
     pub fn least_error_path(&self, distances: &[u16], search_every: u32) -> u16 {
@@ -321,12 +335,12 @@ impl ConvolutionalHistoryTable {
         // these bits are still converging
         for _ in 0..min_traceback_length {
             if index == 0 {
-                index = self.history.len() - 1;
+                index = self.history_cap - 1;
             } else {
                 index -= 1;
             }
 
-            let bit = self.history[index as usize][best_path as usize];
+            let bit = self.history[index * self.num_states as usize + best_path as usize];
             let reg_bit: u16;
             if bit == 0 {
                 reg_bit = 0;
@@ -341,12 +355,12 @@ impl ConvolutionalHistoryTable {
         let num_decodes = self.history_len - min_traceback_length as usize;
         for decoded in self.decode_buf.iter_mut().take(num_decodes) {
             if index == 0 {
-                index = self.history.len() - 1;
+                index = self.history_cap - 1;
             } else {
                 index -= 1;
             }
 
-            let bit = self.history[index as usize][best_path as usize];
+            let bit = self.history[index * self.num_states as usize + best_path as usize];
 
             let reg_bit: u16;
             if bit == 0 {
@@ -366,7 +380,7 @@ impl ConvolutionalHistoryTable {
 
     pub fn process_step(&mut self, step: u32, distances: &mut [u16], bit_writer: &mut BitWriter) {
         self.history_index += 1;
-        if self.history_index == self.history.len() {
+        if self.history_index == self.history_cap {
             self.history_index = 0;
         }
 
@@ -377,11 +391,11 @@ impl ConvolutionalHistoryTable {
             self.renormalize_counter = 0;
             let best_path = self.least_error_path(distances, step);
             self.renormalize(distances, best_path);
-            if self.history_len == self.history.len() {
+            if self.history_len == self.history_cap {
                 let min_traceback_length = self.min_traceback_length;
                 self.traceback(best_path, min_traceback_length, bit_writer);
             }
-        } else if self.history_len == self.history.len() {
+        } else if self.history_len == self.history_cap {
             let best_path = self.least_error_path(distances, step);
             let min_traceback_length = self.min_traceback_length;
             self.traceback(best_path, min_traceback_length, bit_writer);
