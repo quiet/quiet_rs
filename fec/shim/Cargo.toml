@@ -1,0 +1,12 @@
+[package]
+name = "fec_shim"
+version = "0.1.0"
+authors = ["Brian Armstrong <brian.armstrong.ece+github@gmail.com>"]
+
+[dependencies]
+fec = { path = ".." }
+libc = "0.2"
+
+[lib]
+name = "fec"
+crate-type = ["staticlib", "dylib"]
