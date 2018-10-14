@@ -9,7 +9,3 @@ license = "BSD-3-Clause"
 [dependencies]
 lazy_static = "1.1.0"
 fec = { path = "fec" }
-
-[lib]
-name = "embed"
-crate-type = ["staticlib"]
